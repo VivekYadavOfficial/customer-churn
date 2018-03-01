@@ -1,0 +1,168 @@
+---
+title: "Customer Churn Prediction"
+output:
+  html_document: default
+  html_notebook: default
+---
+
+In this R Notebook, I am going to predict whether a customer will churn or not based on various features.
+
+##Introduction
+
+Customer Churn refers to when a customer stops using a service e.g. ending a music streaming subscription service. Predicting customer churn helps a lot of industry to prepare and take different approach so that they can prevent churn or minimize it. It is very helpful in many industries but I am going to take up the telecom industry. I will try to analyze the data and predict the churn. Let's start.
+
+##Overview
+
+The data I'm using is IBM Telecom dataset. You can obtain the data from [here](https://www.ibm.com/communities/analytics/watson-analytics-blog/guide-to-sample-datasets/).  
+
+
+####Loading libraries
+```{r}
+library(ggplot2)
+library(scales)
+library(gridExtra)
+library(caret)
+library(randomForest)
+```
+
+Now that we have loaded important libraries, let's go ahead and read the data.  
+
+####Read the data
+```{r}
+data <- read.csv("C:/users/Vivek/Desktop/churn.csv", header = T, stringsAsFactors = T)
+data[,1] <- as.character(data[,1])
+```
+
+####Summary of data
+
+Let's have a look at the data.
+
+```{r}
+summary(data)
+```
+```{r}
+head(data)
+```
+
+```{r}
+str(data)
+```
+
+There are 11 missing values in TotalCharges columns (look at summary). Since, it is very small percentage, we can simply remove them.
+
+```{r}
+data <- data[complete.cases(data),]
+dim(data)
+```
+
+Now, let's get to the wrangling part.
+
+####Wrangling
+
+Convert the categorical variables to factor type.
+```{r}
+data[,3] <- as.factor(data[,3])
+```
+
+Since, customerID column is of no use in prediction, we will remove that.
+```{r}
+data[,1] <- NULL
+```
+
+####Visualization
+
+Let's visualize the distribution of levels of categorical variables  
+
+```{r}
+p1 = ggplot(data, aes(x = gender)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") + 
+    scale_y_continuous(labels  = percent)
+p2 <- ggplot(data, aes(x = SeniorCitizen)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") +
+    scale_y_continuous(labels  = percent)
+p3 <- ggplot(data, aes(x = Dependents)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") +
+    scale_y_continuous(labels  = percent)
+p4 <- ggplot(data, aes(x = Partner)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") +
+    scale_y_continuous(labels  = percent)
+p5 <- ggplot(data, aes(x = PhoneService)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") +
+    scale_y_continuous(labels  = percent)
+p6 <- ggplot(data, aes(x = InternetService)) + 
+    geom_bar(aes(y = (..count..)/sum(..count..))) + ylab("Percentage") +
+    scale_y_continuous(labels  = percent)
+
+grid.arrange(p1,p2,p3,p4,p5,p6, ncol=2)
+```
+
+Similarly, we can visualize other categorical variables' distribution.
+
+Now, let's move to the modeling part.
+
+###Modeling
+
+We can use different algorithms on this data. I'm going to use RandomForest, Logistic Regression for now.
+
+####Split the data
+First let's split the data in for training and testing.
+
+```{r}
+index <- caret::createDataPartition(data$Churn, p=0.5, list = F)
+train <- data[index,]
+test <- data[-index,]
+```
+```{r}
+dim(train)
+dim(test)
+```
+
+####Logistic Regression  
+
+Let's first build a simpe logistic regression model on the data.
+
+```{r}
+fit.log <- glm(Churn ~ .,family=binomial(link="logit"),data=train)
+summary(fit.log)
+```
+
+Let's predict
+```{r}
+test$Churn <- as.character(test$Churn)
+test$Churn[test$Churn=="No"] <- "0"
+test$Churn[test$Churn=="Yes"] <- "1"
+pred <- predict(fit.log,newdata=test,type='response')
+pred <- ifelse(pred > 0.5,1,0)
+misClasificError <- mean(pred != test$Churn)
+print(paste('Logistic Regression Accuracy',1-misClasificError))
+```
+We can see that accuracy is about 80% which is good. But let's see what RandomForest gives us.
+
+```{r}
+fit.rf <- randomForest(Churn~., train)
+fit.rf
+```
+
+```{r}
+test <- data[-index,]
+pred.rf <- predict(fit.rf, test)
+confusionMatrix(pred.rf, test$Churn)
+```
+
+Accuracy is almost the same as of logistic regression model. Let's try to tune it and see how it performs.
+
+```{r}
+trControl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+t <- tuneRF(train[, -20], train[, 20], stepFactor = 0.5, plot = TRUE, ntreeTry = 200, trace = TRUE, improve = 0.05)
+```
+
+```{r}
+fit.rf <- randomForest(Churn~., data = train, trControl=trControl, ntree=300, mtry=2, importance=T, proximity=T)
+fit.rf
+```
+
+```{r}
+pred.rf <- predict(fit.rf, test)
+confusionMatrix(pred.rf, test$Churn)
+```
+Here we go. We can improve more by looking at the variable importance. But, I will leave here now.
